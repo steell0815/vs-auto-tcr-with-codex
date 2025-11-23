@@ -66,6 +66,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return workspace.uri;
   };
 
+  const snapshotFileTree = async (workspaceUri: vscode.Uri, limit = 200): Promise<string[]> => {
+    const root = workspaceUri.fsPath;
+    const entries: string[] = [];
+    const ignored = new Set(['.git', 'node_modules', '.vscode', '.idea', 'dist', 'out', 'build', '.turbo']);
+
+    const walk = async (dir: string) => {
+      const items = await fs.readdir(dir, { withFileTypes: true });
+      for (const item of items) {
+        if (entries.length >= limit) return;
+        const rel = path.relative(root, path.join(dir, item.name));
+        const parts = rel.split(path.sep);
+        if (parts.some((p) => ignored.has(p))) continue;
+        entries.push(rel + (item.isDirectory() ? '/' : ''));
+        if (item.isDirectory()) {
+          await walk(path.join(dir, item.name));
+        }
+      }
+    };
+
+    try {
+      await walk(root);
+    } catch (err) {
+      logError(`Failed to snapshot workspace: ${(err as Error).message}`);
+    }
+    return entries.slice(0, limit);
+  };
+
   const readConfig = (): TcrConfiguration => {
     const cfg = vscode.workspace.getConfiguration('tcrPrompt');
     return {
@@ -454,13 +481,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showWarningMessage('Codex API key not set. Configure tcrPrompt.apiKey to enable Codex.');
     }
 
+    const tree = await snapshotFileTree(workspaceUri, 300);
     const promptForModel = [
-      'Repository context:',
-      `- Prompt title: ${session.title}`,
-      `- Prompt body: ${session.promptBody ?? 'N/A'}`,
-      `- Baseline commit: ${session.baselineSha ?? 'unknown'}`,
+      'You are writing a unified diff against the workspace root. Requirements:',
+      '- Respond ONLY with a unified diff, no code fences, no extra prose.',
+      '- Paths must be relative to workspace root.',
+      '- Include full file contents in the diff hunks (no placeholders).',
+      '- Create files as needed; keep changes minimal and buildable.',
+      '- Do not delete unrelated files.',
       '',
-      'Return only unified diffs. Do not include prose unless necessary.'
+      'Prompt:',
+      `Title: ${session.title}`,
+      `Body: ${session.promptBody ?? 'N/A'}`,
+      `Baseline commit: ${session.baselineSha ?? 'unknown'}`,
+      '',
+      'Workspace file tree (truncated):',
+      tree.map((t) => `- ${t}`).join('\n'),
+      '',
+      'Return only unified diffs. No fences. Keep output under token limits.'
     ].join('\n');
 
     let codexResponse: string | undefined;
@@ -516,6 +554,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.window.showTextDocument(doc);
       if (codexResponse) {
         await applyCodexDiff(codexResponse, workspaceUri, session, config);
+      } else {
+        void vscode.window.showWarningMessage('No Codex diff returned; nothing applied.');
       }
     } catch (err) {
       const msg = (err as Error).message;

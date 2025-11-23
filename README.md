@@ -29,6 +29,8 @@ See `package.json` for defaults:
 - `tcrPrompt.apiBaseUrl` (default chat completions endpoint)
 - `tcrPrompt.model`, `tcrPrompt.systemPrompt`, `tcrPrompt.temperature`, `tcrPrompt.maxTokens`
 
+Codex prompts include a truncated workspace file tree, instruct the model to return only unified diffs with full content, and `continue` applies them via `git apply --3way`.
+
 ## Build / run
 ```bash
 npm install

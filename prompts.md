@@ -1028,3 +1028,35 @@ extension.ts
 -15
 
 
+# next
+```
+In the current version of the extension, tcr prompt are working as far as I can tell now.
+
+After applying an chatgpt ai key, the extension can perform tasks like "create an empty react application"... some files are created but they remain empty, or under unpredictable circumstances are somewhat filled with content, but not complete and not working at all.
+
+Can you analyse and probably fix that?
+Codex should automatically perform the task - on approve (test success of tests available and approved by the author) a commit should be pushed to main, otherwise a revert should be done, keeping only the prompts so far.
+```
+
+Added stricter Codex prompting with workspace context to improve diff quality and application.
+
+src/extension.ts: continue now snapshots the workspace file tree (ignoring bulky folders) and sends it with a clear, strict prompt: unified diff only, paths relative to repo root, full file contents, no prose/fences. If no diff is returned, the user is warned and nothing is applied. Logging/compilation unchanged.
+README.md: noted that Codex prompts include a truncated file tree and require full unified diffs.
+Typecheck: npm run compile -- --noEmit passes.
+This should reduce empty/partial files by giving the model file context and strict diff instructions; diffs are still applied via git apply --3way. Approve/Deny flows continue to stage/commit/push or revert.
+
+2 files changed
++47
+-5
+
+Undo
+
+View all changes
+README.md
++2
+-0
+
+extension.ts
++45
+-5
+

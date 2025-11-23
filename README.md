@@ -2,12 +2,13 @@
 Visual Studio Code extension for a Codex-assisted TCR workflow (Test → Commit → Revert with approve/deny).
 
 ## Current state
-- Skeleton extension with command stubs and configuration surface.
+- Skeleton extension now creates prompt IDs, appends to `prompts.md`, and opens per-prompt thought logs.
+- Configuration surface is in place (prompts root, prompt log file, test command, git remote/branch).
 - Prompts/log contract documented in `docs/prompts-contract.md`.
 - Prompts folder placeholder at `prompts/.gitkeep`.
 
-## Commands (stubs)
-- `TCR Prompt: New Prompt Session` (`tcrPrompt.new`)
+## Commands
+- `TCR Prompt: New Prompt Session` (`tcrPrompt.new`) — collect title + body, generate prompt ID, append to `prompts.md`, create `prompts/<id>-log.md`, capture git HEAD as baseline, and open the thought log.
 - `TCR Prompt: Continue Active Session` (`tcrPrompt.continue`)
 - `TCR Prompt: Review Workspace Changes` (`tcrPrompt.reviewChanges`)
 - `TCR Prompt: Approve (Test → Commit → Push)` (`tcrPrompt.approve`)
@@ -27,3 +28,9 @@ npm install
 npm run watch   # or: npm run compile
 ```
 Launch the extension via VS Code’s Extension Development Host.
+
+## How prompt creation works
+1) `tcrPrompt.new` asks for a short title and full prompt text.  
+2) Generates an ID like `p-20250123T121314` and timestamps the entry.  
+3) Ensures `prompts.md` and the `prompts/` folder exist, appends a `PENDING` entry to `prompts.md`, writes `prompts/<id>-log.md`, and records git `HEAD` (if available) as the baseline.  
+4) Opens the thought log so you can start appending Codex conversations manually (until Codex integration lands).

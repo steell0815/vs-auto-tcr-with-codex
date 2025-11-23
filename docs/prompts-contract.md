@@ -20,7 +20,7 @@ Prompt:
 > Original user request...
 ```
 
-The extension will update `Status` and `Commit` when approve/deny completes.
+The extension will update `Status` and `Commit` when approve/deny completes. IDs use a timestamp format like `p-20250123T121314`.
 
 ## Thought logs (`prompts/<id>-log.md`)
 
@@ -39,4 +39,4 @@ Each file holds the running conversation and decisions for a single prompt:
 Key risks, follow-ups, test outcomes.
 ```
 
-The extension appends messages and test results here as it runs Codex + TCR flows.
+The extension appends messages and test results here as it runs Codex + TCR flows (manual for now, automated later).

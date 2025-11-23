@@ -42,11 +42,13 @@ const COMMANDS = {
   REVIEW: 'tcrPrompt.reviewChanges',
   APPROVE: 'tcrPrompt.approve',
   DENY: 'tcrPrompt.deny',
-  STATUS: 'tcrPrompt.status'
+  STATUS: 'tcrPrompt.status',
+  SELECT: 'tcrPrompt.selectSession'
 };
 
 const STATE_KEYS = {
-  ACTIVE_SESSION: 'tcrPrompt.activeSession'
+  ACTIVE_SESSION: 'tcrPrompt.activeSession',
+  SESSIONS: 'tcrPrompt.sessions'
 };
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -178,6 +180,47 @@ const readConfig = (): TcrConfiguration => {
 
   const loadActiveSession = (): StoredPromptSession | undefined => {
     return context.workspaceState.get<StoredPromptSession>(STATE_KEYS.ACTIVE_SESSION);
+  };
+
+  const loadSessions = (): StoredPromptSession[] => {
+    return context.workspaceState.get<StoredPromptSession[]>(STATE_KEYS.SESSIONS) ?? [];
+  };
+
+  const saveSessions = async (sessions: StoredPromptSession[]) => {
+    await context.workspaceState.update(STATE_KEYS.SESSIONS, sessions);
+  };
+
+  const persistSession = async (session: StoredPromptSession) => {
+    const sessions = loadSessions().filter((s) => s.id !== session.id);
+    sessions.unshift(session);
+    await saveSessions(sessions);
+    await saveActiveSession(session);
+  };
+
+  const pickSession = async (): Promise<StoredPromptSession | undefined> => {
+    const sessions = loadSessions();
+    if (!sessions.length) {
+      void vscode.window.showInformationMessage('No stored sessions found.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      sessions.map((s) => ({
+        label: `${s.id} (${s.status})`,
+        description: s.title,
+        detail: `Created: ${s.createdAt}`,
+        session: s
+      })),
+      { title: 'Select TCR Prompt Session' }
+    );
+    if (!picked) return;
+    await saveActiveSession(picked.session);
+    return picked.session;
+  };
+
+  const getActiveSessionOrPick = async (): Promise<StoredPromptSession | undefined> => {
+    const active = loadActiveSession();
+    if (active) return active;
+    return pickSession();
   };
 
   const updateStatusBar = (session?: StoredPromptSession) => {
@@ -360,7 +403,7 @@ const readConfig = (): TcrConfiguration => {
 
     await writeThoughtLog(thoughtLogAbsolute, id, title, promptBody, createdAt);
     await appendPromptLogEntry(promptLogPath, id, title, promptBody, thoughtLogRelative, createdAt);
-    await saveActiveSession({
+    const session: StoredPromptSession = {
       id,
       title,
       createdAt,
@@ -368,7 +411,8 @@ const readConfig = (): TcrConfiguration => {
       thoughtLogRelativePath: thoughtLogRelative,
       baselineSha,
       promptBody
-    });
+    };
+    await persistSession(session);
 
     channel.appendLine(`Created prompt ${id} (baseline: ${baselineSha ?? 'unknown'}).`);
     void vscode.window.showInformationMessage(`TCR Prompt: created ${id}.`);
@@ -378,9 +422,8 @@ const readConfig = (): TcrConfiguration => {
   });
 
   register(COMMANDS.CONTINUE, async () => {
-    const session = loadActiveSession();
+    const session = await getActiveSessionOrPick();
     if (!session) {
-      void vscode.window.showWarningMessage('No active prompt session. Start a new one first.');
       return;
     }
     const workspaceUri = ensureWorkspace();
@@ -470,9 +513,8 @@ const readConfig = (): TcrConfiguration => {
   register(COMMANDS.APPROVE, async () => {
     const workspaceUri = ensureWorkspace();
     if (!workspaceUri) return;
-    const session = loadActiveSession();
+    const session = await getActiveSessionOrPick();
     if (!session) {
-      void vscode.window.showWarningMessage('No active prompt session to approve.');
       return;
     }
     const config = readConfig();
@@ -487,7 +529,7 @@ const readConfig = (): TcrConfiguration => {
 
     session.lastTestResult = testResult.ok ? 'PASS' : 'FAIL';
     session.lastTestOutput = testResult.output;
-    await saveActiveSession(session);
+    await persistSession(session);
 
     if (!testResult.ok) {
       void vscode.window.showWarningMessage('Tests failed; approve blocked. See thought log for details.');
@@ -531,9 +573,8 @@ const readConfig = (): TcrConfiguration => {
   register(COMMANDS.DENY, async () => {
     const workspaceUri = ensureWorkspace();
     if (!workspaceUri) return;
-    const session = loadActiveSession();
+    const session = await getActiveSessionOrPick();
     if (!session) {
-      void vscode.window.showWarningMessage('No active prompt session to deny.');
       return;
     }
     const config = readConfig();
@@ -575,7 +616,7 @@ const readConfig = (): TcrConfiguration => {
     await updatePromptStatusInLog(promptLogPath, session.id, 'DENIED', commitSha);
     session.status = 'DENIED';
     session.lastCommit = commitSha;
-    await saveActiveSession(session);
+    await persistSession(session);
 
     const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
     await appendToThoughtLog(thoughtLogAbsolute, [
@@ -597,6 +638,20 @@ const readConfig = (): TcrConfiguration => {
     channel.appendLine(info);
     void vscode.window.showInformationMessage(info);
     updateStatusBar(session);
+  });
+
+  register(COMMANDS.SELECT, async () => {
+    const session = await pickSession();
+    if (!session) return;
+    const workspaceUri = ensureWorkspace();
+    if (!workspaceUri) return;
+    const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
+    try {
+      const doc = await vscode.workspace.openTextDocument(thoughtLogAbsolute);
+      await vscode.window.showTextDocument(doc);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Could not open thought log: ${(err as Error).message}`);
+    }
   });
 
   updateStatusBar(loadActiveSession());

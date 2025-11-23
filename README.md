@@ -17,6 +17,7 @@ Visual Studio Code extension for a Codex-assisted TCR workflow (Test → Commit 
 - `TCR Prompt: Approve (Test → Commit → Push)` (`tcrPrompt.approve`) — runs configured tests, stages logs + changed files, commits, pushes, updates `prompts.md`.
 - `TCR Prompt: Deny (Revert Code, Keep Logs)` (`tcrPrompt.deny`) — reverts code to baseline, stages logs, commits, pushes, updates `prompts.md`.
 - `TCR Prompt: Show Status` (`tcrPrompt.status`) — shows active session info and updates status bar.
+- `TCR Prompt: Select Session` (`tcrPrompt.selectSession`) — quick-pick across stored sessions and opens its thought log.
 
 ## Configuration
 See `package.json` for defaults:

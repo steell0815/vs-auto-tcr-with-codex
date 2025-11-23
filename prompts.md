@@ -954,4 +954,41 @@ Codex calls require tcrPrompt.apiKey and network access; otherwise continue will
 Diff application is via git apply --3way --whitespace=nowarn; failures are reported and do not revert existing changes.
 Approve/Deny flows still stage/commit/push and rely on the recorded baseline.
 
+# next
+```
+Add persistence of multiple sessions + quick-pick selector.
+````
+
+## chat responds
+Implemented multi-session persistence with a quick-pick selector.
+
+package.json: added tcrPrompt.selectSession command and activation; Codex config unchanged.
+src/extension.ts:
+Sessions are now persisted as a list in workspaceState; helpers to load/save/upsert and to pick a session.
+continue, approve, and deny now prompt to select a session if none is active.
+New command Select Session opens a quick pick and the chosen thought log.
+Session updates (status, tests, commits) are persisted and reflected in the status bar.
+README.md: documented the new select-session command.
+Build check: npm run compile -- --noEmit passes.
+
+3 files changed
++75
+-13
+
+Undo
+
+View all changes
+README.md
++1
+-0
+
+package.json
++7
+-1
+
+extension.ts
++67
+-12
+
+
 

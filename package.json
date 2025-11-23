@@ -21,7 +21,8 @@
     "onCommand:tcrPrompt.reviewChanges",
     "onCommand:tcrPrompt.approve",
     "onCommand:tcrPrompt.deny",
-    "onCommand:tcrPrompt.status"
+    "onCommand:tcrPrompt.status",
+    "onCommand:tcrPrompt.selectSession"
   ],
   "main": "./out/extension.js",
   "scripts": {
@@ -60,6 +61,11 @@
       {
         "command": "tcrPrompt.status",
         "title": "TCR Prompt: Show Status",
+        "category": "TCR Prompt"
+      },
+      {
+        "command": "tcrPrompt.selectSession",
+        "title": "TCR Prompt: Select Session",
         "category": "TCR Prompt"
       }
     ],

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as os from 'os';
 import { promises as fs } from 'fs';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -12,6 +13,12 @@ type TcrConfiguration = {
   testCommand: string;
   gitRemote: string;
   gitBranch: string;
+  apiKey: string;
+  apiBaseUrl: string;
+  model: string;
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
 };
 
 type PromptStatus = 'PENDING' | 'APPROVED' | 'DENIED';
@@ -26,6 +33,7 @@ type StoredPromptSession = {
   lastTestResult?: 'PASS' | 'FAIL';
   lastTestOutput?: string;
   lastCommit?: string;
+  promptBody?: string;
 };
 
 const COMMANDS = {
@@ -56,16 +64,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return workspace.uri;
   };
 
-  const readConfig = (): TcrConfiguration => {
-    const cfg = vscode.workspace.getConfiguration('tcrPrompt');
-    return {
-      promptsRoot: cfg.get<string>('promptsRoot', 'prompts'),
-      promptLogFile: cfg.get<string>('promptLogFile', 'prompts.md'),
-      testCommand: cfg.get<string>('testCommand', 'npm test'),
-      gitRemote: cfg.get<string>('gitRemote', 'origin'),
-      gitBranch: cfg.get<string>('gitBranch', 'main')
-    };
+const readConfig = (): TcrConfiguration => {
+  const cfg = vscode.workspace.getConfiguration('tcrPrompt');
+  return {
+    promptsRoot: cfg.get<string>('promptsRoot', 'prompts'),
+    promptLogFile: cfg.get<string>('promptLogFile', 'prompts.md'),
+    testCommand: cfg.get<string>('testCommand', 'npm test'),
+    gitRemote: cfg.get<string>('gitRemote', 'origin'),
+    gitBranch: cfg.get<string>('gitBranch', 'main'),
+    apiKey: cfg.get<string>('apiKey', ''),
+    apiBaseUrl: cfg.get<string>('apiBaseUrl', 'https://api.openai.com/v1/chat/completions'),
+    model: cfg.get<string>('model', 'gpt-4o-mini'),
+    systemPrompt: cfg.get<string>(
+      'systemPrompt',
+      'You operate in a Test-Commit-Revert workflow. Return only unified diffs for necessary files. Be minimal and keep code passing tests.'
+    ),
+    temperature: cfg.get<number>('temperature', 0),
+    maxTokens: cfg.get<number>('maxTokens', 800)
   };
+};
 
   const ensureArtifacts = async (workspaceUri: vscode.Uri, config: TcrConfiguration) => {
     const promptsFolder = path.join(workspaceUri.fsPath, config.promptsRoot);
@@ -270,6 +287,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await runCommand('git', ['checkout', baselineSha, '--', ...filesToRevert], workspaceUri.fsPath);
   };
 
+  const applyCodexDiff = async (
+    diffText: string,
+    workspaceUri: vscode.Uri,
+    session: StoredPromptSession,
+    config: TcrConfiguration
+  ) => {
+    const trimmed = diffText.trim();
+    if (!trimmed.includes('diff ') && !trimmed.includes('+++') && !trimmed.includes('@@')) {
+      channel.appendLine('Codex response does not look like a unified diff; skipping apply.');
+      void vscode.window.showWarningMessage('Codex response does not look like a diff. Skipping apply.');
+      return;
+    }
+
+    let patchPath: string | undefined;
+    try {
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tcr-codex-'));
+      patchPath = path.join(tmpDir, 'codex.patch');
+      await fs.writeFile(patchPath, trimmed, 'utf8');
+
+      await runCommand('git', ['apply', '--3way', '--whitespace=nowarn', patchPath], workspaceUri.fsPath);
+
+      const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
+      await appendToThoughtLog(thoughtLogAbsolute, [
+        `- ${new Date().toISOString()}: Applied Codex diff via git apply.`,
+        ''
+      ]);
+      void vscode.window.showInformationMessage('Applied Codex diff.');
+    } catch (err) {
+      const msg = (err as Error).message;
+      channel.appendLine(`Failed to apply diff: ${msg}`);
+      void vscode.window.showErrorMessage(`Failed to apply Codex diff: ${msg}`);
+    } finally {
+      if (patchPath) {
+        void fs.rm(patchPath, { force: true });
+      }
+    }
+  };
+
   register(COMMANDS.NEW, async () => {
     const workspaceUri = ensureWorkspace();
     if (!workspaceUri) return;
@@ -311,7 +366,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       createdAt,
       status: 'PENDING',
       thoughtLogRelativePath: thoughtLogRelative,
-      baselineSha
+      baselineSha,
+      promptBody
     });
 
     channel.appendLine(`Created prompt ${id} (baseline: ${baselineSha ?? 'unknown'}).`);
@@ -331,10 +387,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!workspaceUri) return;
 
     // Placeholder: In the future call Codex, apply diff, and append results.
+    const config = readConfig();
+    const apiKey = config.apiKey.trim();
+    if (!apiKey) {
+      void vscode.window.showWarningMessage('Codex API key not set. Configure tcrPrompt.apiKey to enable Codex.');
+    }
+
+    const promptForModel = [
+      'Repository context:',
+      `- Prompt title: ${session.title}`,
+      `- Prompt body: ${session.promptBody ?? 'N/A'}`,
+      `- Baseline commit: ${session.baselineSha ?? 'unknown'}`,
+      '',
+      'Return only unified diffs. Do not include prose unless necessary.'
+    ].join('\n');
+
+    let codexResponse: string | undefined;
+    if (apiKey) {
+      try {
+        const payload = {
+          model: config.model,
+          temperature: config.temperature,
+          max_tokens: config.maxTokens,
+          messages: [
+            { role: 'system', content: config.systemPrompt },
+            { role: 'user', content: promptForModel }
+          ]
+        };
+        const res = await fetch(config.apiBaseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Codex call failed (${res.status}): ${text}`);
+        }
+        const data = (await res.json()) as any;
+        codexResponse = data?.choices?.[0]?.message?.content?.trim();
+      } catch (err) {
+        const msg = (err as Error).message;
+        channel.appendLine(`Codex error: ${msg}`);
+        void vscode.window.showErrorMessage(`Codex error: ${msg}`);
+      }
+    }
+
     const userNote = await vscode.window.showInputBox({
       title: 'Append note to thought log',
       prompt: 'Add a note or Codex response summary (optional)',
-      value: ''
+      value: codexResponse ?? ''
     });
 
     const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
@@ -342,10 +446,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (userNote) {
       lines.push('', userNote);
     }
+    if (codexResponse && codexResponse !== userNote) {
+      lines.push('', '```\n' + codexResponse + '\n```');
+    }
     try {
       await appendToThoughtLog(thoughtLogAbsolute, [...lines, '']);
       const doc = await vscode.workspace.openTextDocument(thoughtLogAbsolute);
       await vscode.window.showTextDocument(doc);
+      if (codexResponse) {
+        await applyCodexDiff(codexResponse, workspaceUri, session, config);
+      }
     } catch (err) {
       void vscode.window.showErrorMessage(`Could not update thought log: ${(err as Error).message}`);
     }

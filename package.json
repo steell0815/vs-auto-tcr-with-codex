@@ -90,6 +90,36 @@
           "type": "string",
           "default": "main",
           "description": "Branch used for pushing approve/deny commits."
+        },
+        "tcrPrompt.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API key used to call Codex/Chat Completions."
+        },
+        "tcrPrompt.apiBaseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1/chat/completions",
+          "description": "Chat Completions endpoint."
+        },
+        "tcrPrompt.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "Model name for Codex-style calls."
+        },
+        "tcrPrompt.systemPrompt": {
+          "type": "string",
+          "default": "You operate in a Test-Commit-Revert workflow. Return only unified diffs for necessary files. Be minimal and keep code passing tests.",
+          "description": "System prompt sent to Codex."
+        },
+        "tcrPrompt.temperature": {
+          "type": "number",
+          "default": 0,
+          "description": "Sampling temperature for Codex calls."
+        },
+        "tcrPrompt.maxTokens": {
+          "type": "number",
+          "default": 800,
+          "description": "Max tokens for Codex responses."
         }
       }
     }

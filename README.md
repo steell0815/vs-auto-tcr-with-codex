@@ -5,13 +5,14 @@ Visual Studio Code extension for a Codex-assisted TCR workflow (Test → Commit 
 - Creates prompt IDs, appends to `prompts.md`, and opens per-prompt thought logs.
 - Tracks active session (with baseline git SHA and last test result) and shows status in the status bar.
 - Approve/Deny flows now run tests, stage changes, commit, and push (deny reverts code back to baseline, keeps logs).
+- Continue can call Codex (via OpenAI Chat Completions) and attempt to apply unified diffs via `git apply --3way`.
 - Configuration surface is in place (prompts root, prompt log file, test command, git remote/branch).
 - Prompts/log contract documented in `docs/prompts-contract.md`.
 - Prompts folder placeholder at `prompts/.gitkeep`.
 
 ## Commands
 - `TCR Prompt: New Prompt Session` (`tcrPrompt.new`) — collect title + body, generate prompt ID, append to `prompts.md`, create `prompts/<id>-log.md`, capture git HEAD as baseline, and open the thought log.
-- `TCR Prompt: Continue Active Session` (`tcrPrompt.continue`) — placeholder to append a note (future: Codex + diff apply).
+- `TCR Prompt: Continue Active Session` (`tcrPrompt.continue`) — calls Codex (if `apiKey` set), appends response to thought log, and attempts to apply returned unified diff via `git apply --3way`.
 - `TCR Prompt: Review Workspace Changes` (`tcrPrompt.reviewChanges`) — focuses SCM.
 - `TCR Prompt: Approve (Test → Commit → Push)` (`tcrPrompt.approve`) — runs configured tests, stages logs + changed files, commits, pushes, updates `prompts.md`.
 - `TCR Prompt: Deny (Revert Code, Keep Logs)` (`tcrPrompt.deny`) — reverts code to baseline, stages logs, commits, pushes, updates `prompts.md`.
@@ -23,6 +24,9 @@ See `package.json` for defaults:
 - `tcrPrompt.promptLogFile` (default `prompts.md`)
 - `tcrPrompt.testCommand` (default `npm test`)
 - `tcrPrompt.gitRemote` / `tcrPrompt.gitBranch` (default `origin` / `main`)
+- `tcrPrompt.apiKey` (OpenAI API key)
+- `tcrPrompt.apiBaseUrl` (default chat completions endpoint)
+- `tcrPrompt.model`, `tcrPrompt.systemPrompt`, `tcrPrompt.temperature`, `tcrPrompt.maxTokens`
 
 ## Build / run
 ```bash

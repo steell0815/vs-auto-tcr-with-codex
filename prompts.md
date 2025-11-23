@@ -899,3 +899,59 @@ extension.ts
 -8
 ```
 
+# next
+```
+after "npm install", when I perform "npm run watch" an error is raised:
+
+[19:26:19] Starting compilation in watch mode...
+
+src/extension.ts:217:54 - error TS2769: No overload matches this call.
+  Overload 1 of 8, '(file: string, args: readonly string[] | null | undefined, options: ExecFileOptionsWithBufferEncoding): PromiseWithChild<{ stdout: NonSharedBuffer; stderr: NonSharedBuffer; }>', gave the following error.
+    Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+      Type 'string[]' is not assignable to type 'string'.
+  Overload 2 of 8, '(file: string, args: readonly string[] | null | undefined, options: ExecFileOptionsWithStringEncoding): PromiseWithChild<{ stdout: string; stderr: string; }>', gave the following error.
+    Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+      Type 'string[]' is not assignable to type 'string'.
+  Overload 3 of 8, '(file: string, args: readonly string[] | null | undefined, options: ExecFileOptions | null | undefined): PromiseWithChild<{ stdout: string | NonSharedBuffer; stderr: string | NonSharedBuffer; }>', gave the following error.
+    Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+      Type 'string[]' is not assignable to type 'string'.
+
+217       const { stdout, stderr } = await execFileAsync(wrapped[0], wrapped[1] as string[], {
+                                                         ~~~~~~~~~~
+
+
+[19:26:19] Found 1 error. Watching for file changes.
+```
+
+## chat responds
+```
+Fixed the watch build error by simplifying test command execution.
+
+src/extension.ts: runTests now picks cmd or bash and passes args as a string array, eliminating the union type issue.
+npm run watch compiles cleanly now.
+```
+
+# next
+```
+Wire Codex/diff application into continue (API config, apply unified diff safely).
+````
+
+## chat responds
+
+Wired continue to call Codex and apply returned diffs, plus added API config.
+
+package.json/tsconfig.json: added Codex config surface (apiKey/baseUrl/model/systemPrompt/temperature/maxTokens) and DOM lib for fetch typing.
+src/extension.ts:
+Session now stores promptBody; status bar persists.
+continue calls Codex (OpenAI Chat Completions) when apiKey is set, appends the response to the thought log, and attempts to apply unified diffs via git apply --3way.
+Added git-apply helper with temp patch file; improved test runner args.
+README.md: updated commands/config to reflect Codex + diff apply flow.
+Build check: npm run compile -- --noEmit passes.
+
+Notes:
+
+Codex calls require tcrPrompt.apiKey and network access; otherwise continue will just prompt for a note.
+Diff application is via git apply --3way --whitespace=nowarn; failures are reported and do not revert existing changes.
+Approve/Deny flows still stage/commit/push and rely on the recorded baseline.
+
+

@@ -1,0 +1,102 @@
+{
+  "name": "vs-auto-tcr-with-codex",
+  "displayName": "VS Auto TCR with Codex",
+  "description": "VS Code extension that runs a Codex-assisted TCR workflow with prompt + thought logs.",
+  "version": "0.0.1",
+  "publisher": "your-publisher-id",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steell/vs-auto-tcr-with-codex"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:tcrPrompt.new",
+    "onCommand:tcrPrompt.continue",
+    "onCommand:tcrPrompt.reviewChanges",
+    "onCommand:tcrPrompt.approve",
+    "onCommand:tcrPrompt.deny",
+    "onCommand:tcrPrompt.status"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "echo \"No lint step yet\""
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "tcrPrompt.new",
+        "title": "TCR Prompt: New Prompt Session",
+        "category": "TCR Prompt"
+      },
+      {
+        "command": "tcrPrompt.continue",
+        "title": "TCR Prompt: Continue Active Session",
+        "category": "TCR Prompt"
+      },
+      {
+        "command": "tcrPrompt.reviewChanges",
+        "title": "TCR Prompt: Review Workspace Changes",
+        "category": "TCR Prompt"
+      },
+      {
+        "command": "tcrPrompt.approve",
+        "title": "TCR Prompt: Approve (Test → Commit → Push)",
+        "category": "TCR Prompt"
+      },
+      {
+        "command": "tcrPrompt.deny",
+        "title": "TCR Prompt: Deny (Revert Code, Keep Logs)",
+        "category": "TCR Prompt"
+      },
+      {
+        "command": "tcrPrompt.status",
+        "title": "TCR Prompt: Show Status",
+        "category": "TCR Prompt"
+      }
+    ],
+    "configuration": {
+      "title": "TCR Prompt",
+      "properties": {
+        "tcrPrompt.promptsRoot": {
+          "type": "string",
+          "default": "prompts",
+          "description": "Folder used to store per-prompt thought logs."
+        },
+        "tcrPrompt.promptLogFile": {
+          "type": "string",
+          "default": "prompts.md",
+          "description": "File used to append prompt headers + final decisions."
+        },
+        "tcrPrompt.testCommand": {
+          "type": "string",
+          "default": "npm test",
+          "description": "Command executed before approve/deny to gather test results."
+        },
+        "tcrPrompt.gitRemote": {
+          "type": "string",
+          "default": "origin",
+          "description": "Remote used when pushing approve/deny commits."
+        },
+        "tcrPrompt.gitBranch": {
+          "type": "string",
+          "default": "main",
+          "description": "Branch used for pushing approve/deny commits."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

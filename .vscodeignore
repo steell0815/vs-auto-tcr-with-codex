@@ -1,0 +1,6 @@
+.vscode/**
+.git/**
+src/**
+**/*.ts
+tsconfig.json
+share.html

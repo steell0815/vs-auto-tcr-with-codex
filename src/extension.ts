@@ -66,11 +66,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return workspace.uri;
   };
 
-const readConfig = (): TcrConfiguration => {
-  const cfg = vscode.workspace.getConfiguration('tcrPrompt');
-  return {
-    promptsRoot: cfg.get<string>('promptsRoot', 'prompts'),
-    promptLogFile: cfg.get<string>('promptLogFile', 'prompts.md'),
+  const readConfig = (): TcrConfiguration => {
+    const cfg = vscode.workspace.getConfiguration('tcrPrompt');
+    return {
+      promptsRoot: cfg.get<string>('promptsRoot', 'prompts'),
+      promptLogFile: cfg.get<string>('promptLogFile', 'prompts.md'),
     testCommand: cfg.get<string>('testCommand', 'npm test'),
     gitRemote: cfg.get<string>('gitRemote', 'origin'),
     gitBranch: cfg.get<string>('gitBranch', 'main'),
@@ -230,13 +230,22 @@ const readConfig = (): TcrConfiguration => {
       statusBar.show();
       return;
     }
-    statusBar.text = `TCR: ${session.status} (${session.id})`;
+    const testPart = session.lastTestResult ? ` • Tests: ${session.lastTestResult}` : '';
+    statusBar.text = `TCR: ${session.status}${testPart ? testPart : ''} (${session.id})`;
     const details = [session.title, `Created: ${session.createdAt}`];
     if (session.lastTestResult) {
       details.push(`Tests: ${session.lastTestResult}`);
     }
     statusBar.tooltip = details.join('\n');
     statusBar.show();
+  };
+
+  const logInfo = (message: string) => {
+    channel.appendLine(message);
+  };
+
+  const logError = (message: string) => {
+    channel.appendLine(`ERROR: ${message}`);
   };
 
   const appendToThoughtLog = async (absolutePath: string, lines: string[]) => {
@@ -266,8 +275,13 @@ const readConfig = (): TcrConfiguration => {
   };
 
   const runCommand = async (cmd: string, args: string[], cwd: string) => {
-    const { stdout, stderr } = await execFileAsync(cmd, args, { cwd, encoding: 'utf8' });
-    return { stdout, stderr };
+    try {
+      const { stdout, stderr } = await execFileAsync(cmd, args, { cwd, encoding: 'utf8' });
+      return { stdout, stderr };
+    } catch (err: any) {
+      const output = (err.stdout ?? '') + (err.stderr ?? '') || err.message || 'Command failed';
+      throw new Error(`${cmd} ${args.join(' ')} failed: ${output}`);
+    }
   };
 
   const runTests = async (workspaceUri: vscode.Uri, config: TcrConfiguration) => {
@@ -280,9 +294,12 @@ const readConfig = (): TcrConfiguration => {
         cwd: workspaceUri.fsPath,
         encoding: 'utf8'
       });
-      return { ok: true, output: stdout || stderr || 'Tests passed.' };
+      const output = stdout || stderr || 'Tests passed.';
+      logInfo(`Tests passed:\n${output}`);
+      return { ok: true, output };
     } catch (err: any) {
       const output = (err.stdout ?? '') + (err.stderr ?? '') || (err.message ?? 'Tests failed.');
+      logError(`Tests failed:\n${output}`);
       return { ok: false, output };
     }
   };
@@ -310,8 +327,9 @@ const readConfig = (): TcrConfiguration => {
       await runCommand('git', ['push', config.gitRemote, config.gitBranch], workspaceUri.fsPath);
       return commitSha;
     } catch (err) {
-      void vscode.window.showErrorMessage(`Git commit/push failed: ${(err as Error).message}`);
-      channel.appendLine(`Git error: ${(err as Error).message}`);
+      const msg = (err as Error).message;
+      void vscode.window.showErrorMessage(`Git commit/push failed: ${msg}`);
+      logError(msg);
       return undefined;
     }
   };
@@ -359,7 +377,7 @@ const readConfig = (): TcrConfiguration => {
       void vscode.window.showInformationMessage('Applied Codex diff.');
     } catch (err) {
       const msg = (err as Error).message;
-      channel.appendLine(`Failed to apply diff: ${msg}`);
+      logError(`Failed to apply diff: ${msg}`);
       void vscode.window.showErrorMessage(`Failed to apply Codex diff: ${msg}`);
     } finally {
       if (patchPath) {
@@ -473,7 +491,7 @@ const readConfig = (): TcrConfiguration => {
         codexResponse = data?.choices?.[0]?.message?.content?.trim();
       } catch (err) {
         const msg = (err as Error).message;
-        channel.appendLine(`Codex error: ${msg}`);
+        logError(`Codex error: ${msg}`);
         void vscode.window.showErrorMessage(`Codex error: ${msg}`);
       }
     }
@@ -500,7 +518,9 @@ const readConfig = (): TcrConfiguration => {
         await applyCodexDiff(codexResponse, workspaceUri, session, config);
       }
     } catch (err) {
-      void vscode.window.showErrorMessage(`Could not update thought log: ${(err as Error).message}`);
+      const msg = (err as Error).message;
+      logError(msg);
+      void vscode.window.showErrorMessage(`Could not update thought log: ${msg}`);
     }
   });
 
@@ -523,7 +543,9 @@ const readConfig = (): TcrConfiguration => {
     const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
     await appendToThoughtLog(thoughtLogAbsolute, [
       '## Test run (approve)',
+      '```',
       testResult.output,
+      '```',
       ''
     ]);
 
@@ -635,7 +657,7 @@ const readConfig = (): TcrConfiguration => {
       return;
     }
     const info = `ID ${session.id} | ${session.status} | Created ${session.createdAt} | Log ${session.thoughtLogRelativePath}`;
-    channel.appendLine(info);
+    logInfo(info);
     void vscode.window.showInformationMessage(info);
     updateStatusBar(session);
   });

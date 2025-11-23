@@ -14,7 +14,7 @@ Visual Studio Code extension for a Codex-assisted TCR workflow (Test → Commit 
 - `TCR Prompt: New Prompt Session` (`tcrPrompt.new`) — collect title + body, generate prompt ID, append to `prompts.md`, create `prompts/<id>-log.md`, capture git HEAD as baseline, and open the thought log.
 - `TCR Prompt: Continue Active Session` (`tcrPrompt.continue`) — calls Codex (if `apiKey` set), appends response to thought log, and attempts to apply returned unified diff via `git apply --3way`.
 - `TCR Prompt: Review Workspace Changes` (`tcrPrompt.reviewChanges`) — focuses SCM.
-- `TCR Prompt: Approve (Test → Commit → Push)` (`tcrPrompt.approve`) — runs configured tests, stages logs + changed files, commits, pushes, updates `prompts.md`.
+- `TCR Prompt: Approve (Test → Commit → Push)` (`tcrPrompt.approve`) — runs configured tests (logs output in thought log + output channel), stages logs + changed files, commits, pushes, updates `prompts.md`.
 - `TCR Prompt: Deny (Revert Code, Keep Logs)` (`tcrPrompt.deny`) — reverts code to baseline, stages logs, commits, pushes, updates `prompts.md`.
 - `TCR Prompt: Show Status` (`tcrPrompt.status`) — shows active session info and updates status bar.
 - `TCR Prompt: Select Session` (`tcrPrompt.selectSession`) — quick-pick across stored sessions and opens its thought log.

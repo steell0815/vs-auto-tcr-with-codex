@@ -990,5 +990,41 @@ extension.ts
 +67
 -12
 
+# next
+```
+Harden git/test errors and add richer UI (output panel parsing, status decorations).
+```
+
+## chat responds
+
+Hardened git/test handling and improved status/output UI.
+
+src/extension.ts:
+Added channel helpers (logInfo, logError) and more robust runCommand error reporting.
+Test runner now logs pass/fail output; test results fenced in thought logs.
+Status bar shows test result alongside session status.
+Codex/continue logging improved; apply-diff failures now surface clean errors.
+Approve/Deny flows reuse persisted sessions; errors bubble to channel and notifications.
+package.json/README.md: documented the richer logging behavior.
+Build check: npm run compile -- --noEmit passes.
+
+Notes:
+
+Git/test failures now include command output in the output panel; thought logs capture test output blocks.
+Status bar reflects last test result when available.
+2 files changed
++38
+-16
+
+Undo
+
+View all changes
+README.md
++1
+-1
+
+extension.ts
++37
+-15
 
 

@@ -23,6 +23,9 @@ type StoredPromptSession = {
   status: PromptStatus;
   thoughtLogRelativePath: string;
   baselineSha?: string;
+  lastTestResult?: 'PASS' | 'FAIL';
+  lastTestOutput?: string;
+  lastCommit?: string;
 };
 
 const COMMANDS = {
@@ -40,6 +43,9 @@ const STATE_KEYS = {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const channel = vscode.window.createOutputChannel('TCR Prompt');
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  statusBar.command = COMMANDS.STATUS;
+  context.subscriptions.push(statusBar);
 
   const ensureWorkspace = (): vscode.Uri | undefined => {
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -150,10 +156,118 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const saveActiveSession = async (session: StoredPromptSession) => {
     await context.workspaceState.update(STATE_KEYS.ACTIVE_SESSION, session);
+    updateStatusBar(session);
   };
 
   const loadActiveSession = (): StoredPromptSession | undefined => {
     return context.workspaceState.get<StoredPromptSession>(STATE_KEYS.ACTIVE_SESSION);
+  };
+
+  const updateStatusBar = (session?: StoredPromptSession) => {
+    if (!session) {
+      statusBar.text = 'TCR: idle';
+      statusBar.tooltip = 'No active prompt';
+      statusBar.show();
+      return;
+    }
+    statusBar.text = `TCR: ${session.status} (${session.id})`;
+    const details = [session.title, `Created: ${session.createdAt}`];
+    if (session.lastTestResult) {
+      details.push(`Tests: ${session.lastTestResult}`);
+    }
+    statusBar.tooltip = details.join('\n');
+    statusBar.show();
+  };
+
+  const appendToThoughtLog = async (absolutePath: string, lines: string[]) => {
+    await fs.appendFile(absolutePath, `${lines.join('\n')}\n`, { encoding: 'utf8' });
+  };
+
+  const updatePromptStatusInLog = async (
+    promptLogPath: string,
+    id: string,
+    status: PromptStatus,
+    commitSha: string | undefined
+  ) => {
+    const content = await fs.readFile(promptLogPath, 'utf8');
+    const sections = content.split('\n---\n');
+    const updated = sections.map((section) => {
+      if (!section.includes(`ID: ${id}`)) return section;
+      const lines = section.split('\n');
+      return lines
+        .map((line) => {
+          if (line.startsWith('Status:')) return `Status: ${status}`;
+          if (line.startsWith('Commit:') && commitSha) return `Commit: ${commitSha}`;
+          return line;
+        })
+        .join('\n');
+    });
+    await fs.writeFile(promptLogPath, updated.join('\n---\n'), 'utf8');
+  };
+
+  const runCommand = async (cmd: string, args: string[], cwd: string) => {
+    const { stdout, stderr } = await execFileAsync(cmd, args, { cwd, encoding: 'utf8' });
+    return { stdout, stderr };
+  };
+
+  const runTests = async (workspaceUri: vscode.Uri, config: TcrConfiguration) => {
+    const command = config.testCommand;
+    const isWin = process.platform === 'win32';
+    const file = isWin ? 'cmd' : 'bash';
+    const args = isWin ? ['/c', command] : ['-lc', command];
+    try {
+      const { stdout, stderr } = await execFileAsync(file, args, {
+        cwd: workspaceUri.fsPath,
+        encoding: 'utf8'
+      });
+      return { ok: true, output: stdout || stderr || 'Tests passed.' };
+    } catch (err: any) {
+      const output = (err.stdout ?? '') + (err.stderr ?? '') || (err.message ?? 'Tests failed.');
+      return { ok: false, output };
+    }
+  };
+
+  const getChangedFilesSinceBaseline = async (workspaceUri: vscode.Uri, baselineSha?: string) => {
+    if (!baselineSha) return [];
+    try {
+      const { stdout } = await runCommand('git', ['diff', '--name-only', baselineSha], workspaceUri.fsPath);
+      return stdout.split('\n').filter(Boolean);
+    } catch (err) {
+      channel.appendLine(`Could not list changes: ${(err as Error).message}`);
+      return [];
+    }
+  };
+
+  const commitAndPush = async (
+    workspaceUri: vscode.Uri,
+    message: string,
+    config: TcrConfiguration
+  ): Promise<string | undefined> => {
+    try {
+      await runCommand('git', ['commit', '-m', message], workspaceUri.fsPath);
+      const { stdout } = await runCommand('git', ['rev-parse', 'HEAD'], workspaceUri.fsPath);
+      const commitSha = stdout.trim();
+      await runCommand('git', ['push', config.gitRemote, config.gitBranch], workspaceUri.fsPath);
+      return commitSha;
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Git commit/push failed: ${(err as Error).message}`);
+      channel.appendLine(`Git error: ${(err as Error).message}`);
+      return undefined;
+    }
+  };
+
+  const stageFiles = async (workspaceUri: vscode.Uri, files: string[]) => {
+    if (!files.length) return;
+    await runCommand('git', ['add', ...files], workspaceUri.fsPath);
+  };
+
+  const revertCodeChanges = async (
+    workspaceUri: vscode.Uri,
+    baselineSha: string,
+    filesToRevert: string[]
+  ) => {
+    if (!filesToRevert.length) return;
+    await runCommand('git', ['checkout', baselineSha, '--', ...filesToRevert], workspaceUri.fsPath);
   };
 
   register(COMMANDS.NEW, async () => {
@@ -216,43 +330,166 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workspaceUri = ensureWorkspace();
     if (!workspaceUri) return;
 
+    // Placeholder: In the future call Codex, apply diff, and append results.
+    const userNote = await vscode.window.showInputBox({
+      title: 'Append note to thought log',
+      prompt: 'Add a note or Codex response summary (optional)',
+      value: ''
+    });
+
     const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
+    const lines = [`- ${new Date().toISOString()}: Continued session.`];
+    if (userNote) {
+      lines.push('', userNote);
+    }
     try {
+      await appendToThoughtLog(thoughtLogAbsolute, [...lines, '']);
       const doc = await vscode.workspace.openTextDocument(thoughtLogAbsolute);
       await vscode.window.showTextDocument(doc);
     } catch (err) {
-      void vscode.window.showErrorMessage(`Could not open thought log: ${(err as Error).message}`);
+      void vscode.window.showErrorMessage(`Could not update thought log: ${(err as Error).message}`);
     }
   });
 
   register(COMMANDS.REVIEW, async () => {
     if (!ensureWorkspace()) return;
-    channel.appendLine('Review changes (stub).');
+    channel.appendLine('Review changes.');
     void vscode.commands.executeCommand('workbench.scm.focus');
   });
 
   register(COMMANDS.APPROVE, async () => {
-    if (!ensureWorkspace()) return;
-    channel.appendLine('Approve flow (stub: run tests → commit → push).');
-    void vscode.window.showWarningMessage('Approve is stubbed; implement git + test flow.');
+    const workspaceUri = ensureWorkspace();
+    if (!workspaceUri) return;
+    const session = loadActiveSession();
+    if (!session) {
+      void vscode.window.showWarningMessage('No active prompt session to approve.');
+      return;
+    }
+    const config = readConfig();
+
+    const testResult = await runTests(workspaceUri, config);
+    const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
+    await appendToThoughtLog(thoughtLogAbsolute, [
+      '## Test run (approve)',
+      testResult.output,
+      ''
+    ]);
+
+    session.lastTestResult = testResult.ok ? 'PASS' : 'FAIL';
+    session.lastTestOutput = testResult.output;
+    await saveActiveSession(session);
+
+    if (!testResult.ok) {
+      void vscode.window.showWarningMessage('Tests failed; approve blocked. See thought log for details.');
+      return;
+    }
+
+    const changedFiles = await getChangedFilesSinceBaseline(workspaceUri, session.baselineSha);
+    const filesToStage = [
+      config.promptLogFile,
+      session.thoughtLogRelativePath.replace(/\//g, path.sep),
+      ...changedFiles
+    ];
+    try {
+      await stageFiles(workspaceUri, filesToStage);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Staging failed: ${(err as Error).message}`);
+      return;
+    }
+
+    const commitSha = await commitAndPush(
+      workspaceUri,
+      `TCR: [APPROVE] ${session.title} (${session.id})`,
+      config
+    );
+    if (!commitSha) return;
+
+    const promptLogPath = path.join(workspaceUri.fsPath, config.promptLogFile);
+    await updatePromptStatusInLog(promptLogPath, session.id, 'APPROVED', commitSha);
+    session.status = 'APPROVED';
+    session.lastCommit = commitSha;
+    await saveActiveSession(session);
+
+    await appendToThoughtLog(thoughtLogAbsolute, [
+      `- ${new Date().toISOString()}: Approved and committed ${commitSha}.`,
+      ''
+    ]);
+
+    void vscode.window.showInformationMessage(`Approved and pushed ${commitSha}`);
   });
 
   register(COMMANDS.DENY, async () => {
-    if (!ensureWorkspace()) return;
-    channel.appendLine('Deny flow (stub: revert code, keep logs).');
-    void vscode.window.showWarningMessage('Deny is stubbed; implement revert + commit flow.');
+    const workspaceUri = ensureWorkspace();
+    if (!workspaceUri) return;
+    const session = loadActiveSession();
+    if (!session) {
+      void vscode.window.showWarningMessage('No active prompt session to deny.');
+      return;
+    }
+    const config = readConfig();
+
+    if (!session.baselineSha) {
+      void vscode.window.showWarningMessage('No baseline recorded; cannot revert code safely.');
+      return;
+    }
+
+    const changedFiles = await getChangedFilesSinceBaseline(workspaceUri, session.baselineSha);
+    const protectedFiles = new Set<string>([
+      config.promptLogFile.replace(/\//g, path.sep),
+      session.thoughtLogRelativePath.replace(/\//g, path.sep)
+    ]);
+    const codeFiles = changedFiles.filter((f) => !protectedFiles.has(f));
+
+    try {
+      await revertCodeChanges(workspaceUri, session.baselineSha, codeFiles);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Revert failed: ${(err as Error).message}`);
+      return;
+    }
+
+    try {
+      await stageFiles(workspaceUri, Array.from(protectedFiles));
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Staging failed: ${(err as Error).message}`);
+      return;
+    }
+
+    const commitSha = await commitAndPush(
+      workspaceUri,
+      `TCR: [DENY] ${session.title} (${session.id})`,
+      config
+    );
+    if (!commitSha) return;
+
+    const promptLogPath = path.join(workspaceUri.fsPath, config.promptLogFile);
+    await updatePromptStatusInLog(promptLogPath, session.id, 'DENIED', commitSha);
+    session.status = 'DENIED';
+    session.lastCommit = commitSha;
+    await saveActiveSession(session);
+
+    const thoughtLogAbsolute = path.join(workspaceUri.fsPath, session.thoughtLogRelativePath);
+    await appendToThoughtLog(thoughtLogAbsolute, [
+      `- ${new Date().toISOString()}: Denied and reverted code. Committed ${commitSha} (logs only).`,
+      ''
+    ]);
+
+    void vscode.window.showInformationMessage(`Denied and pushed ${commitSha}`);
   });
 
   register(COMMANDS.STATUS, async () => {
     const session = loadActiveSession();
     if (!session) {
       void vscode.window.showInformationMessage('TCR Prompt: no active session.');
+      updateStatusBar(undefined);
       return;
     }
     const info = `ID ${session.id} | ${session.status} | Created ${session.createdAt} | Log ${session.thoughtLogRelativePath}`;
     channel.appendLine(info);
     void vscode.window.showInformationMessage(info);
+    updateStatusBar(session);
   });
+
+  updateStatusBar(loadActiveSession());
 }
 
 export function deactivate(): void {

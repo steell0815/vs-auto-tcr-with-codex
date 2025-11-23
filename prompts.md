@@ -860,5 +860,42 @@ Local
 Agent
 
 
-````
+```
+
+# next
+```
+Next steps: wire Codex calls and diff application into continue, add test runner + git approve/deny flows, and surface status in the UI.
+```
+
+## chat responds
+
+```
+Hooked up real TCR flows and status surface.
+
+src/extension.ts: Added status bar, active-session storage, test runner, staging/commit/push helpers, and prompt-log status updates. approve now runs tests, stages logs + code, commits, pushes, and marks APPROVED. deny reverts code back to the baseline SHA, keeps/stages logs, commits, pushes, and marks DENIED. continue can append a note (placeholder for Codex/diff application). Baseline SHA is captured on prompt creation and used for revert.
+README.md: Reflected the new flows and status bar; clarified commands.
+Notes:
+
+Approve/Deny will run git commands and push to the configured remote/branch.
+Tests run via the configured tcrPrompt.testCommand using your shell (bash -lc on non-Windows).
+Next options:
+
+Wire Codex/diff application into continue (API config, apply unified diff safely).
+Add persistence of multiple sessions + quick-pick selector.
+Harden git/test errors and add richer UI (output panel parsing, status decorations).
+2 files changed
++251
+-14
+
+Undo
+
+View all changes
+README.md
++8
+-6
+
+extension.ts
++243
+-8
+```
 
